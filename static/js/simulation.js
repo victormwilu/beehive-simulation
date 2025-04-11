@@ -14,9 +14,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Initialize simulation state
   let simulationState = null;
+  let prevSimulationState = null;
   let animationFrameId = null;
+  let lastUpdateTime = 0;
+  const updateInterval = 200; // ms between server updates
+
   let imagesLoaded = 0;
   const totalImages = 3;
+
+  // Interpolation factor for smooth animation
+  let interpolationFactor = 0;
 
   // Check when all images are loaded
   [scoutBeeImg, foragerBeeImg, queenBeeImg].forEach(img => {
@@ -43,8 +50,23 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // Main animation loop
-  function animationLoop() {
-    fetchSimulationState();
+  function animationLoop(timestamp) {
+    if (!timestamp) timestamp = performance.now();
+
+    // Calculate time since last update
+    const elapsed = timestamp - lastUpdateTime;
+
+    // Check if it's time to fetch new state
+    if (elapsed >= updateInterval) {
+      prevSimulationState = JSON.parse(JSON.stringify(simulationState));
+      fetchSimulationState();
+      lastUpdateTime = timestamp;
+      interpolationFactor = 0;
+    } else if (prevSimulationState && simulationState) {
+      // Calculate interpolation factor for smooth movement
+      interpolationFactor = elapsed / updateInterval;
+    }
+
     draw();
     animationFrameId = requestAnimationFrame(animationLoop);
   }
@@ -54,6 +76,9 @@ document.addEventListener('DOMContentLoaded', function () {
     fetch('/api/simulation/state')
       .then(response => response.json())
       .then(data => {
+        if (!simulationState) {
+          prevSimulationState = JSON.parse(JSON.stringify(data));
+        }
         simulationState = data;
       })
       .catch(error => {
@@ -61,9 +86,15 @@ document.addEventListener('DOMContentLoaded', function () {
       });
   }
 
+  // Interpolate between two positions for smooth animation
+  function interpolate(prev, current, factor) {
+    if (!prev || !current) return current;
+    return prev + (current - prev) * factor;
+  }
+
   // Draw the simulation on canvas
   function draw() {
-    if (!simulationState) return;
+    if (!simulationState || !prevSimulationState) return;
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -79,10 +110,16 @@ document.addEventListener('DOMContentLoaded', function () {
     ctx.fill();
 
     // Draw paper sources
-    for (const paper of simulationState.paper_sources) {
+    for (let i = 0; i < simulationState.paper_sources.length; i++) {
+      const paper = simulationState.paper_sources[i];
+      const prevPaper = prevSimulationState.paper_sources[i];
+
       if (paper.remaining <= 0) continue;
 
-      const size = 10 + 30 * (paper.remaining / paper.original);
+      // Interpolate remaining value for smooth shrinking
+      const interpolatedRemaining = interpolate(prevPaper.remaining, paper.remaining, interpolationFactor);
+      const size = 10 + 30 * (interpolatedRemaining / paper.original);
+
       ctx.beginPath();
       ctx.arc(paper.x, paper.y, size / 2, 0, Math.PI * 2);
       ctx.fillStyle = paper.discovered ? 'rgba(255, 165, 0, 0.6)' : 'rgba(0, 128, 0, 0.6)';
@@ -92,7 +129,7 @@ document.addEventListener('DOMContentLoaded', function () {
       ctx.fillStyle = 'black';
       ctx.font = '8px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText(Math.floor(paper.remaining), paper.x, paper.y + 5);
+      ctx.fillText(Math.floor(interpolatedRemaining), paper.x, paper.y + 5);
     }
 
     // Draw queen bee
@@ -102,23 +139,42 @@ document.addEventListener('DOMContentLoaded', function () {
       simulationState.queen.size * 2,
       simulationState.queen.size * 2);
 
-    // Draw scout bees
-    for (const scout of simulationState.scout_bees) {
-      ctx.drawImage(scoutBeeImg, scout.x - 10, scout.y - 10, 20, 20);
+    // Draw scout bees with interpolation for smooth movement
+    for (let i = 0; i < simulationState.scout_bees.length; i++) {
+      const scout = simulationState.scout_bees[i];
+      const prevScout = prevSimulationState.scout_bees[i];
+
+      const x = interpolate(prevScout.x, scout.x, interpolationFactor);
+      const y = interpolate(prevScout.y, scout.y, interpolationFactor);
+
+      ctx.drawImage(scoutBeeImg, x - 10, y - 10, 20, 20);
     }
 
-    // Draw forager bees
-    for (const forager of simulationState.forager_bees) {
-      ctx.drawImage(foragerBeeImg, forager.x - 10, forager.y - 10, 20, 20);
+    // Draw forager bees with interpolation for smooth movement
+    for (let i = 0; i < simulationState.forager_bees.length; i++) {
+      const forager = simulationState.forager_bees[i];
+      const prevForager = prevSimulationState.forager_bees[i];
+
+      const x = interpolate(prevForager.x, forager.x, interpolationFactor);
+      const y = interpolate(prevForager.y, forager.y, interpolationFactor);
+
+      ctx.drawImage(foragerBeeImg, x - 10, y - 10, 20, 20);
     }
 
     // Draw status text
     ctx.fillStyle = 'black';
     ctx.font = '16px Arial';
     ctx.textAlign = 'center';
+
+    // Interpolate papers analysed value for smooth counting
+    const papersAnalysed = interpolate(
+      prevSimulationState.hive.papers_analysed,
+      simulationState.hive.papers_analysed,
+      interpolationFactor
+    );
+
     ctx.fillText(
-      `Papers Analysed: ${Math.floor(simulationState.hive.papers_analysed)} | 
-            Fields Discovered: ${simulationState.papers_found_ids.length}/${simulationState.paper_sources.length}`,
+      `Papers Analysed: ${Math.floor(papersAnalysed)} | Fields Discovered: ${simulationState.papers_found_ids.length}/${simulationState.paper_sources.length}`,
       canvas.width / 2, 30
     );
 
@@ -146,6 +202,8 @@ document.addEventListener('DOMContentLoaded', function () {
       .then(data => {
         if (data.status === 'success') {
           console.log('Simulation reset successfully');
+          // Force immediate state update
+          fetchSimulationState();
         }
       })
       .catch(error => {

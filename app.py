@@ -2,6 +2,7 @@ from flask import Flask, render_template, jsonify
 import random
 import math
 import os
+import time
 
 app = Flask(__name__)
 
@@ -35,7 +36,8 @@ simulation_state = {
     "scout_bees": [],
     "forager_bees": [],
     "paper_sources": [],
-    "papers_found_ids": []
+    "papers_found_ids": [],
+    "last_update_time": time.time()
 }
 
 def reset_simulation(params=None):
@@ -58,6 +60,7 @@ def reset_simulation(params=None):
     simulation_state["forager_bees"] = []
     simulation_state["paper_sources"] = []
     simulation_state["papers_found_ids"] = []
+    simulation_state["last_update_time"] = time.time()
     
     # Create paper sources
     for i in range(simulation_state["params"]["papers_found"]):
@@ -104,12 +107,21 @@ def update_simulation():
     """Update the simulation state by one step"""
     global simulation_state
     
-    update_scout_bees()
-    update_forager_bees()
+    current_time = time.time()
+    elapsed = current_time - simulation_state["last_update_time"]
+    
+    # Calculate time-based movement factor
+    # This ensures consistent movement speed regardless of update frequency
+    time_factor = min(elapsed * 5, 1.0)  # Cap at 1.0 to prevent huge jumps
+    
+    update_scout_bees(time_factor)
+    update_forager_bees(time_factor)
+    
+    simulation_state["last_update_time"] = current_time
     
     return simulation_state
 
-def update_scout_bees():
+def update_scout_bees(time_factor):
     """Update all scout bees in the simulation"""
     for scout in simulation_state["scout_bees"]:
         if scout["returning"]:
@@ -129,8 +141,10 @@ def update_scout_bees():
                 scout["target_x"] = random.uniform(0, simulation_state["params"]["width"])
                 scout["target_y"] = random.uniform(0, simulation_state["params"]["height"])
             else:
-                scout["x"] += (dx / d) * simulation_state["params"]["scout_speed"]
-                scout["y"] += (dy / d) * simulation_state["params"]["scout_speed"]
+                # Apply time factor to movement for smoother animation
+                move_speed = simulation_state["params"]["scout_speed"] * time_factor
+                scout["x"] += (dx / d) * move_speed
+                scout["y"] += (dy / d) * move_speed
         else:
             dx = scout["target_x"] - scout["x"]
             dy = scout["target_y"] - scout["y"]
@@ -140,8 +154,10 @@ def update_scout_bees():
                 scout["target_x"] = random.uniform(0, simulation_state["params"]["width"])
                 scout["target_y"] = random.uniform(0, simulation_state["params"]["height"])
             else:
-                scout["x"] += (dx / d) * simulation_state["params"]["scout_speed"]
-                scout["y"] += (dy / d) * simulation_state["params"]["scout_speed"]
+                # Apply time factor to movement for smoother animation
+                move_speed = simulation_state["params"]["scout_speed"] * time_factor
+                scout["x"] += (dx / d) * move_speed
+                scout["y"] += (dy / d) * move_speed
                 
                 for paper in simulation_state["paper_sources"]:
                     if paper["remaining"] <= 0:
@@ -153,7 +169,7 @@ def update_scout_bees():
                         scout["papers_found"] = paper["id"]
                         break
 
-def update_forager_bees():
+def update_forager_bees(time_factor):
     """Update all forager bees in the simulation"""
     for forager in simulation_state["forager_bees"]:
         if forager["returning"]:
@@ -175,8 +191,10 @@ def update_forager_bees():
                     forager["target_y"] = target_paper["y"]
                     forager["returning"] = False
             else:
-                forager["x"] += (dx / d) * simulation_state["params"]["forager_speed"]
-                forager["y"] += (dy / d) * simulation_state["params"]["forager_speed"]
+                # Apply time factor to movement for smoother animation
+                move_speed = simulation_state["params"]["forager_speed"] * time_factor
+                forager["x"] += (dx / d) * move_speed
+                forager["y"] += (dy / d) * move_speed
         else:
             if forager["paper_found_id"] is not None:
                 target_paper = simulation_state["paper_sources"][forager["paper_found_id"]]
@@ -191,7 +209,8 @@ def update_forager_bees():
                     d = math.hypot(dx, dy)
                     
                     if d < 15:
-                        amount = min(simulation_state["params"]["paper_analysis_rate"], 
+                        # Scale paper analysis rate by time factor
+                        amount = min(simulation_state["params"]["paper_analysis_rate"] * time_factor, 
                                     target_paper["remaining"])
                         target_paper["remaining"] -= amount
                         forager["executing"] += amount
@@ -199,8 +218,10 @@ def update_forager_bees():
                         forager["target_x"] = simulation_state["hive"]["x"]
                         forager["target_y"] = simulation_state["hive"]["y"]
                     else:
-                        forager["x"] += (dx / d) * simulation_state["params"]["forager_speed"]
-                        forager["y"] += (dy / d) * simulation_state["params"]["forager_speed"]
+                        # Apply time factor to movement for smoother animation
+                        move_speed = simulation_state["params"]["forager_speed"] * time_factor
+                        forager["x"] += (dx / d) * move_speed
+                        forager["y"] += (dy / d) * move_speed
             else:
                 forager["returning"] = True
                 forager["target_x"] = simulation_state["hive"]["x"]
